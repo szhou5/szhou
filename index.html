@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Riftbound Signal Board</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="hero">
+        <p class="eyebrow">Riftbound Card Signals</p>
+        <h1>Spot card pullbacks before they disappear.</h1>
+        <p class="hero-copy">
+          Track daily prices, compare them to the 20-day and 50-day trend, and use
+          RSI to surface better buying setups.
+        </p>
+      </section>
+
+      <section class="workspace">
+        <div class="panel controls-panel">
+          <div class="panel-header">
+            <h2>Card</h2>
+            <span class="panel-chip" id="feed-chip">Stored History</span>
+          </div>
+
+          <label class="field">
+            <span>Tracked card</span>
+            <select id="card-select"></select>
+          </label>
+
+          <label class="field">
+            <span>Reference URL</span>
+            <input id="card-url" type="url" readonly />
+          </label>
+
+          <section class="import-panel">
+            <div class="import-header">
+              <h3>Historical Data Import</h3>
+              <span class="panel-chip">CSV or JSON</span>
+            </div>
+            <p class="import-copy">
+              Import daily historical prices to temporarily override the stored history
+              and compute real SMA and RSI values.
+            </p>
+            <label class="field">
+              <span>Price file</span>
+              <input id="history-file" type="file" accept=".csv,.json,application/json,text/csv" />
+            </label>
+            <button id="reset-data" class="secondary-button" type="button">
+              Reload stored history
+            </button>
+            <p id="import-status" class="import-status import-status--muted">
+              Waiting for a file. Expected fields: <code>date</code> and <code>price</code>.
+            </p>
+          </section>
+
+          <div class="metrics-grid" id="metrics-grid"></div>
+
+          <div class="signal-card" id="signal-card"></div>
+        </div>
+
+        <div class="panel chart-panel">
+          <div class="panel-header">
+            <h2>Price Chart</h2>
+            <span class="panel-chip">Price + SMA</span>
+          </div>
+          <div id="price-chart" class="chart-frame"></div>
+        </div>
+
+        <div class="panel chart-panel">
+          <div class="panel-header">
+            <h2>RSI</h2>
+            <span class="panel-chip">14-day</span>
+          </div>
+          <div id="rsi-chart" class="chart-frame chart-frame--short"></div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
