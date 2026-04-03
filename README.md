@@ -31,17 +31,25 @@ The tracked Kai'Sa alternate-art card is configured to use the `Foil` history fi
 
 ## Run it
 
+Use a local HTTP server when possible, because the app fetches `data/cards.json` and some browsers block that request when `index.html` is opened with `file://`.
+
 You can run the app in either of these ways:
 
-1. Open [index.html](/Users/sunnyzhou/szhou/index.html) directly in a browser.
-2. In VS Code, run the `Launch Riftbound App` debug configuration from [launch.json](/Users/sunnyzhou/szhou/.vscode/launch.json). That will start a local server using [tasks.json](/Users/sunnyzhou/szhou/.vscode/tasks.json) and open `http://127.0.0.1:8080`.
+1. In VS Code, run the `Launch Riftbound App` debug configuration from [launch.json](/Users/sunnyzhou/szhou/.vscode/launch.json). That will start a local server using [tasks.json](/Users/sunnyzhou/szhou/.vscode/tasks.json) and open `http://127.0.0.1:8080`.
+2. In PowerShell, run:
+
+```powershell
+.\.venv\Scripts\python.exe -m http.server 8080 --bind 127.0.0.1
+```
+
+Then open `http://127.0.0.1:8080`.
 
 ## Collector workflow
 
 Refresh the stored history:
 
-```bash
-./.venv/bin/python scripts/update_dotgg_history.py
+```powershell
+.\.venv\Scripts\python.exe .\scripts\update_dotgg_history.py
 ```
 
 That command updates:
@@ -52,10 +60,10 @@ That command updates:
 
 Import your own real file into the stored manifest:
 
-```bash
-./.venv/bin/python scripts/import_history.py /path/to/history.csv \
-  --id my-card \
-  --name "My Card" \
+```powershell
+.\.venv\Scripts\python.exe .\scripts\import_history.py C:\path\to\history.csv `
+  --id my-card `
+  --name "My Card" `
   --source-name "Manual Import"
 ```
 

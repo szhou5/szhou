@@ -171,7 +171,7 @@ function render() {
   cardUrl.placeholder = card.sourceUrl ? "" : "Imported file has no source URL";
   feedChip.textContent = card.feedLabel;
   renderMetrics(latest, card);
-  renderSignal(signal, latest, card);
+  renderSignalCard(signal, latest, card);
   renderPriceChart(card.prices, sma20, sma50);
   renderRsiChart(card.prices, rsi14);
   renderImportStatus();
@@ -218,10 +218,45 @@ function renderImportStatus() {
   importStatus.className = `import-status import-status--${state.importState.status}`;
 }
 
+function renderSignalCard(signal, latest, card) {
+  signalCard.innerHTML = `
+    <h3>${signal.title}</h3>
+    <p>${signal.description(latest, card)}</p>
+    <span class="signal-score">${signal.label} &middot; Score ${signal.score}/100</span>
+    <p class="signal-footnote">${signal.scoreFootnote}</p>
+  `;
+
+  signalCard.style.borderColor = signal.border;
+  signalCard.style.background = `
+    linear-gradient(180deg, ${signal.glowTop}, ${signal.glowBottom}),
+    rgba(255, 255, 255, 0.04)
+  `;
+}
+
 function renderPriceChart(prices, sma20, sma50) {
   const width = 860;
   const height = 360;
   const padding = { top: 22, right: 22, bottom: 32, left: 52 };
+  const series = [
+    {
+      name: "Price",
+      values: prices.map((entry) => entry.price),
+      color: "var(--price)",
+      strokeWidth: 3.2,
+    },
+    {
+      name: "20-day SMA",
+      values: sma20,
+      color: "var(--sma20)",
+      strokeWidth: 2.4,
+    },
+    {
+      name: "50-day SMA",
+      values: sma50,
+      color: "var(--sma50)",
+      strokeWidth: 2.4,
+    },
+  ];
   const values = [
     ...prices.map((entry) => entry.price),
     ...sma20.filter(isFiniteNumber),
@@ -232,11 +267,14 @@ function renderPriceChart(prices, sma20, sma50) {
     height,
     padding,
     labels: prices.map((entry) => entry.label),
-    series: [
-      { values: prices.map((entry) => entry.price), color: "var(--price)", strokeWidth: 3.2 },
-      { values: sma20, color: "var(--sma20)", strokeWidth: 2.4 },
-      { values: sma50, color: "var(--sma50)", strokeWidth: 2.4 },
-    ],
+    series,
+    pointAnnotations: series.flatMap((entry, seriesIndex) =>
+      buildSeriesPointAnnotations(entry.values, {
+        color: entry.color,
+        formatter: formatUsd,
+        seriesIndex,
+      }),
+    ),
     yDomain: paddedExtent(values, 0.08),
     yTickFormatter: formatUsd,
   });
@@ -252,12 +290,18 @@ function renderRsiChart(prices, rsi) {
   const width = 860;
   const height = 220;
   const padding = { top: 16, right: 22, bottom: 32, left: 52 };
+  const rsiSeries = { values: rsi, color: "var(--rsi)", strokeWidth: 2.8 };
   const chart = buildLineChartSvg({
     width,
     height,
     padding,
     labels: prices.map((entry) => entry.label),
-    series: [{ values: rsi, color: "var(--rsi)", strokeWidth: 2.8 }],
+    series: [rsiSeries],
+    pointAnnotations: buildLastPointAnnotation(rsiSeries.values, {
+      color: rsiSeries.color,
+      formatter: formatIndicatorNumber,
+      seriesIndex: 0,
+    }),
     yDomain: [0, 100],
     yTickFormatter: (value) => value.toFixed(0),
     horizontalGuides: [
@@ -279,6 +323,7 @@ function buildLineChartSvg({
   padding,
   labels,
   series,
+  pointAnnotations = [],
   yDomain,
   yTickFormatter,
   horizontalGuides = [],
@@ -347,6 +392,17 @@ function buildLineChartSvg({
     })
     .join("");
 
+  const positionedAnnotations = positionPointAnnotations(pointAnnotations, {
+    xAt,
+    yAt,
+    width,
+    height,
+    padding,
+  });
+  const annotationMarks = positionedAnnotations
+    .map((annotation) => buildPointAnnotation(annotation))
+    .join("");
+
   return {
     svg: `
       <svg viewBox="0 0 ${width} ${height}" class="chart-svg" role="img" aria-label="Card price chart">
@@ -354,10 +410,191 @@ function buildLineChartSvg({
         ${guides}
         ${paths}
         ${latestDots}
+        ${annotationMarks}
         ${xTicks}
       </svg>
     `,
   };
+}
+
+function buildSeriesPointAnnotations(values, { color, formatter, seriesIndex }) {
+  const finitePoints = values
+    .map((value, index) => ({ value, index }))
+    .filter(({ value }) => isFiniteNumber(value));
+
+  if (!finitePoints.length) {
+    return [];
+  }
+
+  const annotationKindsByIndex = new Map();
+  const highest = [...finitePoints]
+    .sort((left, right) => right.value - left.value || left.index - right.index)
+    .slice(0, 2);
+  const lowest = [...finitePoints]
+    .sort((left, right) => left.value - right.value || left.index - right.index)
+    .slice(0, 2);
+  const lastPoint = finitePoints[finitePoints.length - 1];
+
+  for (const point of highest) {
+    addAnnotationKind(annotationKindsByIndex, point.index, "high");
+  }
+
+  for (const point of lowest) {
+    addAnnotationKind(annotationKindsByIndex, point.index, "low");
+  }
+
+  addAnnotationKind(annotationKindsByIndex, lastPoint.index, "last");
+
+  return [...annotationKindsByIndex.entries()].map(([index, kinds]) => ({
+    index,
+    value: values[index],
+    label: formatter(values[index]),
+    color,
+    seriesIndex,
+    totalPoints: values.length,
+    kinds,
+  }));
+}
+
+function buildLastPointAnnotation(values, { color, formatter, seriesIndex }) {
+  const index = findLastFiniteIndex(values);
+  if (index === -1) {
+    return [];
+  }
+
+  return [
+    {
+      index,
+      value: values[index],
+      label: formatter(values[index]),
+      color,
+      seriesIndex,
+      totalPoints: values.length,
+      kinds: ["last"],
+    },
+  ];
+}
+
+function addAnnotationKind(annotationKindsByIndex, index, kind) {
+  const kinds = annotationKindsByIndex.get(index) ?? [];
+  if (!kinds.includes(kind)) {
+    kinds.push(kind);
+  }
+
+  annotationKindsByIndex.set(index, kinds);
+}
+
+function positionPointAnnotations(annotations, { xAt, yAt, width, height, padding }) {
+  const positioned = [];
+  const lastAnnotations = [];
+
+  for (const annotation of annotations) {
+    const positionedAnnotation = buildBasePointAnnotationLayout(annotation, {
+      xAt,
+      yAt,
+      width,
+      height,
+      padding,
+    });
+
+    if (annotation.kinds.includes("last")) {
+      lastAnnotations.push(positionedAnnotation);
+      continue;
+    }
+
+    positioned.push(positionedAnnotation);
+  }
+
+  layoutLastAnnotations(lastAnnotations, { height, padding });
+  return [...positioned, ...lastAnnotations];
+}
+
+function buildBasePointAnnotationLayout(annotation, { xAt, yAt, width, height, padding }) {
+  const x = xAt(annotation.index);
+  const y = yAt(annotation.value);
+  const labelWidth = Math.max(54, annotation.label.length * 7.4 + 12);
+  const labelHeight = 20;
+  const labelGap = 10;
+  const verticalOffset = annotation.seriesIndex * 18;
+  const horizontalOffset = annotation.seriesIndex * 6;
+
+  let boxX = x - labelWidth / 2;
+  let boxY = y - labelHeight - labelGap - verticalOffset;
+  let textX = x;
+  let textY = boxY + 13.5;
+
+  if (annotation.kinds.includes("last")) {
+    const preferredLeft = annotation.index > annotation.totalPoints * 0.7;
+    if (preferredLeft) {
+      boxX = x - labelWidth - labelGap - horizontalOffset;
+    } else {
+      boxX = x + labelGap + horizontalOffset;
+    }
+    boxY = y - labelHeight / 2;
+    textX = boxX + labelWidth / 2;
+    textY = boxY + 13.5;
+  } else if (annotation.kinds.includes("low")) {
+    boxY = y + labelGap + verticalOffset;
+    textY = boxY + 13.5;
+  }
+
+  boxX = clamp(boxX, padding.left + 4, width - padding.right - labelWidth - 4);
+  boxY = clamp(boxY, padding.top + 4, height - padding.bottom - labelHeight - 4);
+  textX = boxX + labelWidth / 2;
+  textY = boxY + 13.5;
+
+  return {
+    ...annotation,
+    x,
+    y,
+    boxX,
+    boxY,
+    textX,
+    textY,
+    labelWidth,
+    labelHeight,
+  };
+}
+
+function layoutLastAnnotations(annotations, { height, padding }) {
+  if (!annotations.length) {
+    return;
+  }
+
+  const spacing = 6;
+  const minY = padding.top + 4;
+  const maxY = height - padding.bottom - annotations[0].labelHeight - 4;
+  const sorted = [...annotations].sort((left, right) => left.y - right.y || left.boxY - right.boxY);
+
+  for (let index = 0; index < sorted.length; index += 1) {
+    const annotation = sorted[index];
+    const previous = sorted[index - 1];
+    const minimumBoxY = previous ? previous.boxY + previous.labelHeight + spacing : minY;
+    annotation.boxY = clamp(Math.max(annotation.boxY, minimumBoxY), minY, maxY);
+  }
+
+  for (let index = sorted.length - 2; index >= 0; index -= 1) {
+    const annotation = sorted[index];
+    const next = sorted[index + 1];
+    const maximumBoxY = next.boxY - annotation.labelHeight - spacing;
+    annotation.boxY = clamp(Math.min(annotation.boxY, maximumBoxY), minY, maxY);
+  }
+
+  for (const annotation of annotations) {
+    annotation.textY = annotation.boxY + 13.5;
+  }
+}
+
+function buildPointAnnotation(annotation) {
+  const { x, y, boxX, boxY, textX, textY, labelWidth, labelHeight } = annotation;
+
+  return `
+    <g class="point-annotation">
+      <circle cx="${x}" cy="${y}" r="3.6" fill="${annotation.color}" class="point-annotation-dot" />
+      <rect x="${boxX}" y="${boxY}" width="${labelWidth}" height="${labelHeight}" rx="10" fill="rgba(9, 17, 31, 0.88)" stroke="${annotation.color}" />
+      <text x="${textX}" y="${textY}" text-anchor="middle" class="point-annotation-text">${annotation.label}</text>
+    </g>
+  `;
 }
 
 function buildLegend(items) {
@@ -395,33 +632,13 @@ function getLatestSnapshot(prices, sma20, sma50, rsi14) {
 }
 
 function scoreBuyingOpportunity(snapshot) {
-  let score = 50;
-
-  if (isFiniteNumber(snapshot.vsSma20) && snapshot.vsSma20 < -0.03) {
-    score += 18;
-  } else if (isFiniteNumber(snapshot.vsSma20) && snapshot.vsSma20 < 0) {
-    score += 10;
-  }
-
-  if (isFiniteNumber(snapshot.vsSma50) && snapshot.vsSma50 < -0.05) {
-    score += 15;
-  } else if (isFiniteNumber(snapshot.vsSma50) && snapshot.vsSma50 < 0) {
-    score += 8;
-  }
-
-  if (isFiniteNumber(snapshot.rsi) && snapshot.rsi <= 35) {
-    score += 18;
-  } else if (isFiniteNumber(snapshot.rsi) && snapshot.rsi < 45) {
-    score += 10;
-  } else if (isFiniteNumber(snapshot.rsi) && snapshot.rsi > 65) {
-    score -= 14;
-  }
-
-  score = clamp(Math.round(score), 0, 100);
+  const breakdown = buildSignalScoreBreakdown(snapshot);
+  const score = breakdown.score;
 
   if (score >= 75) {
     return {
       score,
+      scoreFootnote: breakdown.footnote,
       label: "Strong buy zone",
       title: "Potential accumulation window",
       border: "rgba(128, 237, 153, 0.26)",
@@ -437,6 +654,7 @@ function scoreBuyingOpportunity(snapshot) {
   if (score >= 60) {
     return {
       score,
+      scoreFootnote: breakdown.footnote,
       label: "Watch closely",
       title: "Interesting pullback, not fully washed out",
       border: "rgba(246, 189, 96, 0.28)",
@@ -451,6 +669,7 @@ function scoreBuyingOpportunity(snapshot) {
 
   return {
     score,
+    scoreFootnote: breakdown.footnote,
     label: "Wait",
     title: "Momentum is not offering a discount yet",
     border: "rgba(242, 132, 130, 0.24)",
@@ -461,6 +680,104 @@ function scoreBuyingOpportunity(snapshot) {
         latest.rsi,
       )}, and price is not discounted enough versus the moving averages to qualify as a strong value setup.`,
   };
+}
+
+function buildSignalScoreBreakdown(snapshot) {
+  const baseScore = 50;
+  const vsSma20Points = getVsSma20Points(snapshot.vsSma20);
+  const vsSma50Points = getVsSma50Points(snapshot.vsSma50);
+  const rsiPoints = getRsiPoints(snapshot.rsi);
+  const score = clamp(Math.round(baseScore + vsSma20Points + vsSma50Points + rsiPoints), 0, 100);
+
+  return {
+    score,
+    footnote:
+      "Score starts at 50. " +
+      `Price vs 20D SMA contributes ${describeTrendPoints(vsSma20Points, snapshot.vsSma20, 18, 10, 0.03)}; ` +
+      `price vs 50D SMA contributes ${describeTrendPoints(vsSma50Points, snapshot.vsSma50, 15, 8, 0.05)}; ` +
+      `RSI contributes ${describeRsiPoints(rsiPoints, snapshot.rsi)}. ` +
+      `Current breakdown: 50 base ${formatSignedPoints(vsSma20Points)} ${formatSignedPoints(vsSma50Points)} ${formatSignedPoints(rsiPoints)} = ${score}.`,
+  };
+}
+
+function getVsSma20Points(vsSma20) {
+  if (!isFiniteNumber(vsSma20)) {
+    return 0;
+  }
+
+  if (vsSma20 < -0.03) {
+    return 18;
+  }
+
+  if (vsSma20 < 0) {
+    return 10;
+  }
+
+  return 0;
+}
+
+function getVsSma50Points(vsSma50) {
+  if (!isFiniteNumber(vsSma50)) {
+    return 0;
+  }
+
+  if (vsSma50 < -0.05) {
+    return 15;
+  }
+
+  if (vsSma50 < 0) {
+    return 8;
+  }
+
+  return 0;
+}
+
+function getRsiPoints(rsi) {
+  if (!isFiniteNumber(rsi)) {
+    return 0;
+  }
+
+  if (rsi <= 35) {
+    return 18;
+  }
+
+  if (rsi < 45) {
+    return 10;
+  }
+
+  if (rsi > 65) {
+    return -14;
+  }
+
+  return 0;
+}
+
+function describeTrendPoints(points, value, deepDiscountPoints, discountPoints, deepDiscountThreshold) {
+  if (!isFiniteNumber(value)) {
+    return "0 when that average is unavailable";
+  }
+
+  if (points === deepDiscountPoints) {
+    return `${formatSignedPoints(points)} because price is ${formatPercent(value)} below trend`;
+  }
+
+  if (points === discountPoints) {
+    return `${formatSignedPoints(points)} because price is ${formatPercent(value)} below trend`;
+  }
+
+  return `0 because price is ${formatPercent(value)} vs trend and not more than ${formatPercent(-deepDiscountThreshold)} below it`;
+}
+
+function describeRsiPoints(points, rsi) {
+  if (!isFiniteNumber(rsi)) {
+    return "0 when RSI is unavailable";
+  }
+
+  if (points !== 0) {
+    return `${formatSignedPoints(points)} at RSI ${formatIndicatorNumber(rsi)}`;
+  }
+
+  return `0 at RSI ${formatIndicatorNumber(rsi)}`;
 }
 
 function parseImportedHistory(text, fileName) {
@@ -716,6 +1033,10 @@ function formatPercent(value) {
 
 function formatIndicatorNumber(value) {
   return isFiniteNumber(value) ? value.toFixed(1) : "N/A";
+}
+
+function formatSignedPoints(value) {
+  return `${value >= 0 ? "+" : ""}${value}`;
 }
 
 function clamp(value, min, max) {

@@ -61,7 +61,7 @@ body::before {
 
 .hero h1 {
   margin: 0;
-  max-width: 10ch;
+  max-width: 22ch;
   font-size: clamp(2.8rem, 7vw, 5.8rem);
   line-height: 0.95;
 }
@@ -276,12 +276,42 @@ body::before {
   font-size: 0.82rem;
 }
 
+.signal-footnote {
+  margin-top: 12px;
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+
 .chart-frame {
   min-height: 360px;
 }
 
 .chart-frame--short {
   min-height: 220px;
+}
+
+.chart-note {
+  margin-top: 16px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.65;
+}
+
+.chart-note p {
+  margin: 0;
+}
+
+.chart-note p + p {
+  margin-top: 10px;
+}
+
+.chart-note a {
+  color: var(--sma20);
+  text-decoration: none;
+}
+
+.chart-note a:hover {
+  text-decoration: underline;
 }
 
 .chart-svg {
@@ -295,6 +325,18 @@ body::before {
   fill: var(--muted);
   font-size: 12px;
   font-family: "IBM Plex Mono", monospace;
+}
+
+.point-annotation-text {
+  fill: var(--text);
+  font-size: 10.5px;
+  font-family: "IBM Plex Mono", monospace;
+  letter-spacing: -0.01em;
+}
+
+.point-annotation-dot {
+  stroke: rgba(9, 17, 31, 0.9);
+  stroke-width: 1.5;
 }
 
 .legend {
@@ -328,7 +370,7 @@ body::before {
   }
 
   .hero h1 {
-    max-width: 12ch;
+    max-width: 18ch;
   }
 }
 
