@@ -162,6 +162,18 @@ body::before {
   padding: 13px 14px;
 }
 
+.field select option {
+  color: #0b1220;
+  background: #ffffff;
+}
+
+.field select option:hover,
+.field select option:checked,
+.field select option:focus {
+  color: #ffffff;
+  background: #2f6edb;
+}
+
 .search-panel {
   margin-bottom: 18px;
   padding: 16px;
