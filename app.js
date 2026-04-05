@@ -38,6 +38,7 @@ const importStatus = document.querySelector("#data-status");
 let searchDebounceHandle = null;
 let activeSearchController = null;
 let activeHistoryController = null;
+let resizeRenderHandle = null;
 
 init();
 
@@ -49,10 +50,22 @@ async function init() {
   cardSearchForm.addEventListener("submit", handleSearchSubmit);
   cardSearch.addEventListener("input", handleSearchInput);
   searchResults.addEventListener("click", handleSearchResultClick);
+  window.addEventListener("resize", handleWindowResize, { passive: true });
 
   await loadStoredHistory();
   renderSearch();
   render();
+}
+
+function handleWindowResize() {
+  if (resizeRenderHandle) {
+    window.clearTimeout(resizeRenderHandle);
+  }
+
+  resizeRenderHandle = window.setTimeout(() => {
+    resizeRenderHandle = null;
+    render();
+  }, 120);
 }
 
 async function loadStoredHistory() {
@@ -616,9 +629,7 @@ function renderSignalCard(signal, latest, card) {
 }
 
 function renderPriceChart(prices, sma20, sma50) {
-  const width = 860;
-  const height = 360;
-  const padding = { top: 22, right: 22, bottom: 32, left: 52 };
+  const chartViewport = getChartViewport(priceChart, { compact: false });
   const series = [
     {
       name: "Price",
@@ -645,20 +656,28 @@ function renderPriceChart(prices, sma20, sma50) {
     ...sma50.filter(isFiniteNumber),
   ];
   const chart = buildLineChartSvg({
-    width,
-    height,
-    padding,
+    width: chartViewport.width,
+    height: chartViewport.height,
+    padding: chartViewport.padding,
     labels: prices.map((entry) => entry.label),
     series,
-    pointAnnotations: series.flatMap((entry, seriesIndex) =>
-      buildSeriesPointAnnotations(entry.values, {
-        color: entry.color,
-        formatter: formatUsd,
-        seriesIndex,
-        includeLast: false,
-        extremaCount: 1,
-      }),
-    ),
+    pointAnnotations: chartViewport.isPhone
+      ? buildSeriesPointAnnotations(series[0].values, {
+          color: series[0].color,
+          formatter: formatUsd,
+          seriesIndex: 0,
+          includeLast: false,
+          extremaCount: 1,
+        })
+      : series.flatMap((entry, seriesIndex) =>
+          buildSeriesPointAnnotations(entry.values, {
+            color: entry.color,
+            formatter: formatUsd,
+            seriesIndex,
+            includeLast: false,
+            extremaCount: 1,
+          }),
+        ),
     yDomain: paddedExtent(values, 0.08),
     yTickFormatter: formatUsd,
   });
@@ -709,14 +728,12 @@ function renderTrendSummary(latest) {
 }
 
 function renderRsiChart(prices, rsi) {
-  const width = 860;
-  const height = 220;
-  const padding = { top: 16, right: 22, bottom: 32, left: 52 };
+  const chartViewport = getChartViewport(rsiChart, { compact: true });
   const rsiSeries = { values: rsi, color: "var(--rsi)", strokeWidth: 2.8 };
   const chart = buildLineChartSvg({
-    width,
-    height,
-    padding,
+    width: chartViewport.width,
+    height: chartViewport.height,
+    padding: chartViewport.padding,
     labels: prices.map((entry) => entry.label),
     series: [rsiSeries],
     pointAnnotations: buildLastPointAnnotation(rsiSeries.values, {
@@ -737,6 +754,41 @@ function renderRsiChart(prices, rsi) {
     ["Oversold (30)", "var(--oversold)"],
     ["Overbought (70)", "var(--overbought)"],
   ]);
+}
+
+function getChartViewport(container, { compact = false } = {}) {
+  const containerWidth = Math.floor(container?.clientWidth || 0);
+  const width = Math.max(containerWidth, compact ? 320 : 360);
+  const isPhone = width <= 420;
+  const isCompact = width <= 620;
+
+  const height = compact
+    ? isPhone
+      ? 184
+      : isCompact
+        ? 198
+        : 220
+    : isPhone
+      ? 248
+      : isCompact
+        ? 292
+        : 360;
+
+  const padding = isPhone
+    ? { top: 16, right: 14, bottom: 28, left: 42 }
+    : isCompact
+      ? { top: 18, right: 18, bottom: 30, left: 46 }
+      : compact
+        ? { top: 16, right: 22, bottom: 32, left: 52 }
+        : { top: 22, right: 22, bottom: 32, left: 52 };
+
+  return {
+    width,
+    height,
+    padding,
+    isPhone,
+    isCompact,
+  };
 }
 
 function buildLineChartSvg({

@@ -682,61 +682,306 @@ body::before {
 }
 
 @media (max-width: 980px) {
+  .app-shell {
+    width: min(100vw - 24px, 100%);
+    padding: 26px 0 44px;
+  }
+
+  .hero {
+    padding: 8px 4px 20px;
+  }
+
   .workspace {
     grid-template-columns: 1fr;
+    gap: 14px;
   }
 
   .hero h1 {
     max-width: 18ch;
+    font-size: clamp(2.35rem, 7.6vw, 4.1rem);
+  }
+
+  .hero-copy {
+    max-width: 50ch;
+    font-size: 0.98rem;
+    line-height: 1.6;
+  }
+
+  .controls-panel,
+  .chart-panel {
+    padding: 18px;
+  }
+
+  .content-panel {
+    padding: 16px;
+  }
+
+  .charts-stack {
+    gap: 14px;
+  }
+
+  .selected-card-meta {
+    grid-template-columns: minmax(136px, 176px) minmax(0, 1fr);
+  }
+
+  .selected-card-meta__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .chart-frame {
+    min-height: 320px;
+  }
+
+  .chart-frame--short {
+    min-height: 210px;
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .app-shell {
     width: min(100vw - 18px, 100%);
-    padding-top: 18px;
+    padding: 18px 0 32px;
+  }
+
+  .hero {
+    padding: 2px 2px 16px;
+  }
+
+  .eyebrow {
+    margin-bottom: 8px;
+    font-size: 0.74rem;
+  }
+
+  .hero h1 {
+    max-width: 12ch;
+    font-size: clamp(2rem, 10.5vw, 3.15rem);
+    line-height: 0.98;
+  }
+
+  .hero-copy {
+    margin-top: 12px;
+    font-size: 0.92rem;
+    line-height: 1.55;
   }
 
   .panel,
   .controls-panel,
-  .chart-panel {
+  .chart-panel,
+  .content-panel {
     border-radius: 20px;
   }
 
-  .metrics-grid {
-    grid-template-columns: 1fr;
+  .controls-panel,
+  .chart-panel {
+    padding: 16px;
+  }
+
+  .content-panel {
+    padding: 14px;
+  }
+
+  .panel-header {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+
+  .panel-chip {
+    padding: 5px 9px;
+    font-size: 0.74rem;
+  }
+
+  .field {
+    margin-bottom: 14px;
+  }
+
+  .field select,
+  .field input,
+  .secondary-button {
+    min-height: 48px;
+  }
+
+  .search-panel {
+    padding: 14px;
   }
 
   .search-form {
     grid-template-columns: 1fr;
+    gap: 12px;
   }
 
   .search-form__button {
     width: 100%;
   }
 
+  .search-result {
+    grid-template-columns: 48px minmax(0, 1fr);
+    gap: 10px;
+    padding: 9px;
+  }
+
+  .search-result__image {
+    width: 48px;
+    height: 66px;
+  }
+
   .selected-card-meta {
     grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .selected-card-meta__media {
+    max-width: 180px;
+    margin: 0 auto;
   }
 
   .selected-card-meta__header {
     flex-direction: column;
     align-items: flex-start;
+    gap: 10px;
+    padding: 12px 14px;
+  }
+
+  .selected-card-meta__title {
+    font-size: clamp(1rem, 5vw, 1.22rem);
+    line-height: 1.14;
+  }
+
+  .selected-card-meta__subtitle {
+    margin-top: 6px;
+    font-size: 0.82rem;
   }
 
   .selected-card-meta__grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 0 14px 14px;
   }
 
   .selected-card-meta__link {
     align-self: flex-start;
   }
 
-  .price-summary {
+  .signal-card {
+    padding: 16px;
+  }
+
+  .signal-card h3 {
+    font-size: 1.03rem;
+  }
+
+  .metrics-grid,
+  .price-summary,
+  .trend-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .price-summary__card,
+  .trend-summary__card,
+  .metric {
+    padding: 13px 14px;
+  }
+
+  .price-summary__value,
+  .trend-summary__value,
+  .metric-value {
+    font-size: 1.12rem;
+  }
+
+  .chart-frame {
+    min-height: 284px;
+  }
+
+  .chart-frame--short {
+    min-height: 198px;
+  }
+
+  .chart-note {
+    margin-top: 14px;
+    font-size: 0.87rem;
+    line-height: 1.55;
+  }
+
+  .legend {
+    gap: 10px;
+    font-size: 0.78rem;
+  }
+
+  .axis-text,
+  .tooltip-text {
+    font-size: 10px;
+  }
+
+  .point-annotation-text {
+    font-size: 9px;
+  }
+}
+
+@media (max-width: 540px) {
+  .app-shell {
+    width: min(100vw - 14px, 100%);
+    padding: 14px 0 24px;
+  }
+
+  .hero {
+    padding: 0 2px 14px;
+  }
+
+  .hero h1 {
+    max-width: 10ch;
+    font-size: clamp(1.82rem, 11vw, 2.55rem);
+  }
+
+  .hero-copy {
+    font-size: 0.88rem;
+  }
+
+  .workspace,
+  .charts-stack {
+    gap: 10px;
+  }
+
+  .panel,
+  .controls-panel,
+  .chart-panel,
+  .content-panel {
+    border-radius: 18px;
+  }
+
+  .controls-panel,
+  .chart-panel,
+  .content-panel {
+    padding: 14px;
+  }
+
+  .import-copy {
+    font-size: 0.85rem;
+  }
+
+  .metrics-grid,
+  .price-summary,
+  .trend-summary,
+  .selected-card-meta__grid {
     grid-template-columns: 1fr;
   }
 
-  .trend-summary {
-    grid-template-columns: 1fr;
+  .selected-card-meta__media {
+    max-width: 152px;
+  }
+
+  .selected-card-meta__item {
+    padding: 9px 11px;
+  }
+
+  .chart-frame {
+    min-height: 248px;
+  }
+
+  .chart-frame--short {
+    min-height: 184px;
+  }
+
+  .chart-note {
+    font-size: 0.84rem;
   }
 }
