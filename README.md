@@ -1,37 +1,36 @@
 # szhou
 
-A lightweight Riftbound price tracker that stores real card history locally and calculates SMA/RSI from that stored data.
+A lightweight Riftbound card tracker with live DotGG search, local API endpoints, Simple Moving Averages, and RSI-based buy signals.
 
 ## What this app does
 
-- Plots daily price history for a selected card
-- Overlays 20-day and 50-day simple moving averages
+- Searches the Riftbound catalog through a local API backed by DotGG
+- Loads live price history for the selected card
+- Overlays 20-day and 50-day Simple Moving Averages
 - Calculates a 14-day RSI
 - Flags potential buy zones when price is below key averages and RSI is relatively weak
 
 ## Current state
 
-This repo now has a real-data pipeline:
+This repo now has a live-search-first workflow:
 
-- [watchlist.json](/Users/sunnyzhou/szhou/data/watchlist.json) defines tracked cards
-- [update_dotgg_history.py](/Users/sunnyzhou/szhou/scripts/update_dotgg_history.py) fetches live Riftbound price history from the DotGG public API
-- [cards.json](/Users/sunnyzhou/szhou/data/cards.json) stores normalized history for the frontend
-- the browser app loads that stored history by default
-
-Manual CSV/JSON import still works in the UI and temporarily overrides the stored history for that browser session.
+- [server.py](/Users/sunnyzhou/szhou/server.py) serves the app and exposes local `/api/*` endpoints for live search and live card history
+- [cards.json](/Users/sunnyzhou/szhou/data/cards.json) is currently an empty stored-history manifest
+- [watchlist.json](/Users/sunnyzhou/szhou/data/watchlist.json) is currently an empty collector config
+- the browser app starts with no selected card and waits for you to choose a tracked card or search DotGG
 
 ## Source notes
 
 The live collector currently uses the DotGG public API for Riftbound history. I did not wire up direct TCGplayer scraping because:
 
-- TCGplayer’s official API access is not generally available for new integrations
+- TCGplayer's official API access is not generally available for new integrations
 - automated scraping of live marketplace pages is brittle and not a good long-term foundation
 
-The tracked Kai'Sa alternate-art card is configured to use the `Foil` history field returned by DotGG, because that field best matches the alternate-art market variant.
+The app now supports live loading for any searchable Riftbound card in DotGG. Stored history is optional and currently ships empty in this repo.
 
 ## Run it
 
-Use a local HTTP server when possible, because the app fetches `data/cards.json` and some browsers block that request when `index.html` is opened with `file://`.
+Use the local API server when possible, because the app fetches stored history from `data/cards.json` and live search/history data from DotGG through local `/api/*` endpoints. Opening `index.html` with `file://` will not support that flow.
 
 You can run the app in either of these ways:
 
@@ -39,14 +38,28 @@ You can run the app in either of these ways:
 2. In PowerShell, run:
 
 ```powershell
-.\.venv\Scripts\python.exe -m http.server 8080 --bind 127.0.0.1
+.\.venv\Scripts\python.exe .\server.py --port 8080 --bind 127.0.0.1
 ```
 
 Then open `http://127.0.0.1:8080`.
 
+### Live card search
+
+The controls panel includes a DotGG-backed search box. Search by card name, slug, rarity, type, or color, then press Enter, click Search, or click a result to load live price history for that card into the dashboard.
+
+### Current dashboard layout
+
+The app currently renders four main areas:
+
+- a controls sidebar with tracked card selection, DotGG search, reference URL, source status, and source metadata
+- a card details panel with the selected card's art and metadata
+- a recommendation panel that summarizes the SMA/RSI signal
+- a price chart panel with price, SMA KPI cards, and RSI/trend KPI cards
+- a separate RSI panel below the price chart
+
 ## Collector workflow
 
-Refresh the stored history:
+If you want to rebuild a stored-history manifest later, first add cards to [watchlist.json](/Users/sunnyzhou/szhou/data/watchlist.json), then run:
 
 ```powershell
 .\.venv\Scripts\python.exe .\scripts\update_dotgg_history.py
@@ -55,56 +68,15 @@ Refresh the stored history:
 That command updates:
 
 - [cards.json](/Users/sunnyzhou/szhou/data/cards.json)
-- [kaisa-history.csv](/Users/sunnyzhou/szhou/sample-data/kaisa-history.csv)
-- [kaisa-history.json](/Users/sunnyzhou/szhou/sample-data/kaisa-history.json)
-
-Import your own real file into the stored manifest:
-
-```powershell
-.\.venv\Scripts\python.exe .\scripts\import_history.py C:\path\to\history.csv `
-  --id my-card `
-  --name "My Card" `
-  --source-name "Manual Import"
-```
-
-## Import format
-
-The app accepts `.csv` or `.json` files with at least 15 rows so it can calculate `RSI(14)`.
-
-CSV example:
-
-```csv
-date,price
-2026-03-20,88.75
-2026-03-21,89.10
-2026-03-22,89.50
-2026-03-23,89.99
-```
-
-JSON example:
-
-```json
-[
-  { "date": "2026-03-20", "price": 88.75 },
-  { "date": "2026-03-21", "price": 89.10 }
-]
-```
-
-Accepted field names:
-
-- `date`, `day`, or `timestamp`
-- `price`, `close`, `marketPrice`, `market_price`, `last_price`
-
-The collector also exports the stored Kai'Sa history to [kaisa-history.csv](/Users/sunnyzhou/szhou/sample-data/kaisa-history.csv) and [kaisa-history.json](/Users/sunnyzhou/szhou/sample-data/kaisa-history.json), which gives you a real example file to import back into the app or inspect directly.
 
 ## Project structure
 
 - [index.html](/Users/sunnyzhou/szhou/index.html): app shell
-- [styles.css](/Users/sunnyzhou/szhou/styles.css): layout and chart styling
-- [app.js](/Users/sunnyzhou/szhou/app.js): loads stored history, parses manual imports, calculates indicators, and renders charts
-- [watchlist.json](/Users/sunnyzhou/szhou/data/watchlist.json): tracked card config for the collector
-- [cards.json](/Users/sunnyzhou/szhou/data/cards.json): stored normalized card history used by the frontend
+- [styles.css](/Users/sunnyzhou/szhou/styles.css): dashboard layout and chart styling
+- [app.js](/Users/sunnyzhou/szhou/app.js): loads stored/live history, calculates indicators, and renders the dashboard
+- [server.py](/Users/sunnyzhou/szhou/server.py): local web server and API endpoints for search/history
+- [dotgg_api.py](/Users/sunnyzhou/szhou/scripts/dotgg_api.py): shared DotGG catalog/history helpers
+- [watchlist.json](/Users/sunnyzhou/szhou/data/watchlist.json): optional tracked card config for the collector
+- [cards.json](/Users/sunnyzhou/szhou/data/cards.json): stored history manifest used as a fallback when populated
 - [update_dotgg_history.py](/Users/sunnyzhou/szhou/scripts/update_dotgg_history.py): live history collector
-- [import_history.py](/Users/sunnyzhou/szhou/scripts/import_history.py): import helper for your own real CSV/JSON files
-- [kaisa-history.csv](/Users/sunnyzhou/szhou/sample-data/kaisa-history.csv): exported real CSV history
-- [kaisa-history.json](/Users/sunnyzhou/szhou/sample-data/kaisa-history.json): exported real JSON history
+- [test_server.py](/Users/sunnyzhou/szhou/test_server.py): tests for the local API server

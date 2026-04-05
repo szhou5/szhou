@@ -35,86 +35,108 @@
             <select id="card-select"></select>
           </label>
 
+          <section class="search-panel">
+            <div class="import-header">
+              <h3>DotGG Card Search</h3>
+              <span class="panel-chip">Live API</span>
+            </div>
+            <p class="import-copy">
+              Search the full Riftbound catalog on DotGG, then load any card's recent
+              history into the charts.
+            </p>
+            <form id="card-search-form" class="search-form">
+              <label class="field search-form__field">
+                <span>Search cards</span>
+                <input
+                  id="card-search"
+                  type="search"
+                  placeholder="Try Ahri, Jinx, Survivor, Showcase..."
+                  autocomplete="off"
+                />
+              </label>
+              <button class="secondary-button search-form__button" type="submit">
+                Search
+              </button>
+            </form>
+            <p id="search-status" class="import-status import-status--muted">
+              Search by name, slug, type, rarity, or color.
+            </p>
+            <div id="search-results" class="search-results" aria-live="polite"></div>
+          </section>
+
           <label class="field">
             <span>Reference URL</span>
             <input id="card-url" type="url" readonly />
           </label>
 
-          <section class="import-panel">
-            <div class="import-header">
-              <h3>Historical Data Import</h3>
-              <span class="panel-chip">CSV or JSON</span>
-            </div>
-            <p class="import-copy">
-              Import daily historical prices to temporarily override the stored history
-              and compute real SMA and RSI values.
-            </p>
-            <label class="field">
-              <span>Price file</span>
-              <input id="history-file" type="file" accept=".csv,.json,application/json,text/csv" />
-            </label>
-            <button id="reset-data" class="secondary-button" type="button">
-              Reload stored history
-            </button>
-            <p id="import-status" class="import-status import-status--muted">
-              Waiting for a file. Expected fields: <code>date</code> and <code>price</code>.
-            </p>
-          </section>
+          <p id="data-status" class="import-status import-status--muted">
+            Loading card history.
+          </p>
 
           <div class="metrics-grid" id="metrics-grid"></div>
-
-          <div class="signal-card" id="signal-card"></div>
         </div>
 
-        <div class="panel chart-panel">
-          <div class="panel-header">
-            <h2>Price Chart</h2>
-            <span class="panel-chip">Price + SMA</span>
+        <div class="charts-stack">
+          <div class="panel content-panel">
+            <section id="selected-card-meta" class="selected-card-meta" aria-live="polite"></section>
           </div>
-          <div id="price-chart" class="chart-frame"></div>
-          <div class="chart-note">
-            <p>
-              A simple moving average takes the average closing price over a fixed
-              number of periods, then rolls forward one data point at a time. That
-              smoothing helps show the underlying trend, but it also means the line
-              lags price because it is built from past data. In this chart, the
-              20-day SMA reacts faster while the 50-day SMA shows the broader trend.
-            </p>
-            <p>
-              <a
-                href="https://chartschool.stockcharts.com/table-of-contents/technical-indicators-and-overlays/technical-overlays/moving-averages-simple-and-exponential"
-                target="_blank"
-                rel="noreferrer"
-              >
-                Learn more about simple moving averages
-              </a>
-            </p>
-          </div>
-        </div>
 
-        <div class="panel chart-panel">
-          <div class="panel-header">
-            <h2>RSI</h2>
-            <span class="panel-chip">14-day</span>
+          <div class="panel content-panel">
+            <div class="signal-card signal-card--inline" id="signal-card"></div>
           </div>
-          <div id="rsi-chart" class="chart-frame chart-frame--short"></div>
-          <div class="chart-note">
-            <p>
-              The Relative Strength Index is a momentum oscillator that measures the
-              speed and change of price moves on a scale from 0 to 100. Traders often
-              watch 70 as an overbought zone and 30 as an oversold zone, while also
-              using RSI to judge whether momentum is strengthening, weakening, or
-              diverging from price.
-            </p>
-            <p>
-              <a
-                href="https://chartschool.stockcharts.com/table-of-contents/technical-indicators-and-overlays/technical-indicators/relative-strength-index-rsi"
-                target="_blank"
-                rel="noreferrer"
-              >
-                Learn more about RSI
-              </a>
-            </p>
+
+          <div class="panel chart-panel">
+            <div class="panel-header">
+              <h2>Price Chart</h2>
+              <span class="panel-chip">Price + SMA</span>
+            </div>
+            <div id="price-chart" class="chart-frame"></div>
+            <div id="price-summary" class="price-summary" aria-live="polite"></div>
+            <div id="trend-summary" class="trend-summary" aria-live="polite"></div>
+            <div class="chart-note">
+              <p>
+                A Simple Moving Average takes the average closing price over a fixed
+                number of periods, then rolls forward one data point at a time. That
+                smoothing helps show the underlying trend, but it also means the line
+                lags price because it is built from past data. In this chart, the
+                20-day SMA reacts faster while the 50-day SMA shows the broader trend.
+              </p>
+              <p>
+                <a
+                  href="https://chartschool.stockcharts.com/table-of-contents/technical-indicators-and-overlays/technical-overlays/moving-averages-simple-and-exponential"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Learn more about simple moving averages
+                </a>
+              </p>
+            </div>
+          </div>
+
+          <div class="panel chart-panel">
+            <div class="panel-header">
+              <h2>RSI</h2>
+              <span class="panel-chip">14-day</span>
+            </div>
+            <div id="rsi-chart" class="chart-frame chart-frame--short"></div>
+            <div class="chart-note">
+              <p>
+                The Relative Strength Index is a momentum oscillator that measures the
+                speed and change of price moves on a scale from 0 to 100. Traders often
+                watch 70 as an overbought zone and 30 as an oversold zone, while also
+                using RSI to judge whether momentum is strengthening, weakening, or
+                diverging from price.
+              </p>
+              <p>
+                <a
+                  href="https://chartschool.stockcharts.com/table-of-contents/technical-indicators-and-overlays/technical-indicators/relative-strength-index-rsi"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Learn more about RSI
+                </a>
+              </p>
+            </div>
           </div>
         </div>
       </section>

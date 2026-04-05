@@ -1,4 +1,8 @@
 const DEFAULT_DATA_PATH = "./data/cards.json";
+const CARD_SEARCH_PATH = "./api/cards/search";
+const CARD_HISTORY_PATH = "./api/cards";
+const SEARCH_RESULT_LIMIT = 8;
+const SEARCH_DEBOUNCE_MS = 250;
 
 const state = {
   cards: [],
@@ -7,31 +11,47 @@ const state = {
     status: "muted",
     message: "Loading stored card history.",
   },
+  searchState: {
+    query: "",
+    status: "muted",
+    message: "Search by name, slug, type, rarity, or color.",
+    results: [],
+  },
 };
 
+const cardSearchForm = document.querySelector("#card-search-form");
 const cardSelect = document.querySelector("#card-select");
+const cardSearch = document.querySelector("#card-search");
+const searchStatus = document.querySelector("#search-status");
+const searchResults = document.querySelector("#search-results");
 const cardUrl = document.querySelector("#card-url");
 const metricsGrid = document.querySelector("#metrics-grid");
 const signalCard = document.querySelector("#signal-card");
 const priceChart = document.querySelector("#price-chart");
+const priceSummary = document.querySelector("#price-summary");
+const trendSummary = document.querySelector("#trend-summary");
+const selectedCardMeta = document.querySelector("#selected-card-meta");
 const rsiChart = document.querySelector("#rsi-chart");
 const feedChip = document.querySelector("#feed-chip");
-const historyFileInput = document.querySelector("#history-file");
-const resetDataButton = document.querySelector("#reset-data");
-const importStatus = document.querySelector("#import-status");
+const importStatus = document.querySelector("#data-status");
+
+let searchDebounceHandle = null;
+let activeSearchController = null;
+let activeHistoryController = null;
 
 init();
 
 async function init() {
   cardSelect.addEventListener("change", (event) => {
-    state.activeCardId = event.target.value;
+    state.activeCardId = event.target.value || null;
     render();
   });
-
-  historyFileInput.addEventListener("change", handleHistoryImport);
-  resetDataButton.addEventListener("click", resetImportedData);
+  cardSearchForm.addEventListener("submit", handleSearchSubmit);
+  cardSearch.addEventListener("input", handleSearchInput);
+  searchResults.addEventListener("click", handleSearchResultClick);
 
   await loadStoredHistory();
+  renderSearch();
   render();
 }
 
@@ -46,7 +66,7 @@ async function loadStoredHistory() {
     const cards = Array.isArray(payload?.cards) ? payload.cards : [];
 
     state.cards = cards.map(normalizeStoredCard).filter((card) => card.prices.length >= 15);
-    state.activeCardId = state.cards[0]?.id ?? null;
+    state.activeCardId = null;
 
     if (!state.cards.length) {
       throw new Error("No stored card history was found.");
@@ -54,7 +74,7 @@ async function loadStoredHistory() {
 
     state.importState = {
       status: "success",
-      message: `Loaded ${state.cards.length} stored card history file${state.cards.length === 1 ? "" : "s"} from data/cards.json.`,
+      message: `Loaded ${state.cards.length} stored card history file${state.cards.length === 1 ? "" : "s"} from data/cards.json. Search DotGG to load a live card.`,
     };
     populateCardSelect();
   } catch (error) {
@@ -62,8 +82,7 @@ async function loadStoredHistory() {
     state.activeCardId = null;
     state.importState = {
       status: "error",
-      message:
-        "The stored history manifest could not be loaded. Run the collector script or import a CSV/JSON file manually.",
+      message: "The stored history manifest could not be loaded. Search DotGG to load a live card.",
     };
     populateCardSelect();
   }
@@ -74,7 +93,16 @@ function normalizeStoredCard(card) {
 
   return {
     id: card.id,
+    dotggCardId: card.dotggCardId || card.id,
     name: card.name,
+    slug: card.slug || "",
+    setName: card.setName || "",
+    rarity: card.rarity || "",
+    type: card.type || "",
+    supertype: card.supertype || "",
+    colors: Array.isArray(card.colors) ? card.colors : [],
+    imageUrl: card.imageUrl || "",
+    currentPrice: normalizePrice(card.currentPrice),
     sourceUrl: card.sourceUrl || "",
     feedLabel: card.feedLabel || "Stored Data",
     sourceName: card.sourceName || "",
@@ -86,6 +114,13 @@ function normalizeStoredCard(card) {
 function populateCardSelect() {
   cardSelect.innerHTML = "";
 
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = state.cards.length
+    ? "Select a card to load"
+    : "No cards available";
+  cardSelect.append(placeholder);
+
   for (const card of state.cards) {
     const option = document.createElement("option");
     option.value = card.id;
@@ -93,68 +128,287 @@ function populateCardSelect() {
     cardSelect.append(option);
   }
 
-  if (state.activeCardId) {
-    cardSelect.value = state.activeCardId;
-  }
+  cardSelect.value = state.activeCardId || "";
 }
 
-async function handleHistoryImport(event) {
-  const file = event.target.files?.[0];
-  if (!file) {
+function handleSearchInput(event) {
+  const query = event.target.value.trim();
+
+  if (searchDebounceHandle) {
+    window.clearTimeout(searchDebounceHandle);
+  }
+
+  if (activeSearchController) {
+    activeSearchController.abort();
+    activeSearchController = null;
+  }
+
+  if (!prepareSearch(query)) {
     return;
   }
 
-  try {
-    const text = await file.text();
-    const importedPrices = parseImportedHistory(text, file.name);
-    const importedCard = {
-      id: "manual-import",
-      name: `Imported History (${file.name})`,
-      sourceUrl: "",
-      feedLabel: "Manual Import",
-      sourceName: "Local File",
-      priceField: "price",
-      prices: importedPrices,
-    };
+  searchDebounceHandle = window.setTimeout(() => {
+    void performCardSearch(query, {
+      autoLoadTopResult: shouldAutoLoadTopResult(query),
+      requireTopResultMatch: true,
+    });
+  }, SEARCH_DEBOUNCE_MS);
+}
 
-    state.cards = [importedCard, ...state.cards.filter((card) => card.id !== importedCard.id)];
-    state.activeCardId = importedCard.id;
+async function handleSearchSubmit(event) {
+  event.preventDefault();
+
+  const query = cardSearch.value.trim();
+  if (searchDebounceHandle) {
+    window.clearTimeout(searchDebounceHandle);
+    searchDebounceHandle = null;
+  }
+
+  if (activeSearchController) {
+    activeSearchController.abort();
+    activeSearchController = null;
+  }
+
+  if (!prepareSearch(query)) {
+    return;
+  }
+
+  await performCardSearch(query, {
+    autoLoadTopResult: true,
+    requireTopResultMatch: false,
+  });
+}
+
+function prepareSearch(query) {
+  state.searchState.query = query;
+
+  if (!query) {
+    state.searchState = {
+      query: "",
+      status: "muted",
+      message: "Search by name, slug, type, rarity, or color.",
+      results: [],
+    };
+    renderSearch();
+    return false;
+  }
+
+  if (query.length < 2) {
+    state.searchState = {
+      query,
+      status: "muted",
+      message: "Type at least 2 characters to search DotGG.",
+      results: [],
+    };
+    renderSearch();
+    return false;
+  }
+
+  state.searchState = {
+    query,
+    status: "muted",
+    message: `Searching DotGG for "${query}"...`,
+    results: [],
+  };
+  renderSearch();
+  return true;
+}
+
+function shouldAutoLoadTopResult(query) {
+  const normalizedQuery = normalizeSearchValue(query);
+  if (!normalizedQuery) {
+    return false;
+  }
+
+  return normalizedQuery.length >= 4;
+}
+
+async function performCardSearch(
+  query,
+  { autoLoadTopResult = false, requireTopResultMatch = true } = {},
+) {
+  activeSearchController = new AbortController();
+
+  try {
+    const url = `${CARD_SEARCH_PATH}?q=${encodeURIComponent(query)}&limit=${SEARCH_RESULT_LIMIT}`;
+    const response = await fetch(url, {
+      signal: activeSearchController.signal,
+      cache: "no-store",
+    });
+    const payload = await response.json();
+
+    if (!response.ok) {
+      throw new Error(payload?.error || "Card search failed.");
+    }
+
+    state.searchState = {
+      query,
+      status: payload.cards.length ? "success" : "muted",
+      message: payload.cards.length
+        ? `Found ${payload.cards.length} matching Riftbound card${payload.cards.length === 1 ? "" : "s"}.`
+        : `No Riftbound cards matched "${query}".`,
+      results: payload.cards,
+    };
+    renderSearch();
+
+    const shouldLoadTopCard =
+      autoLoadTopResult &&
+      payload.cards.length &&
+      (!requireTopResultMatch || shouldLoadResultForQuery(query, payload.cards[0]));
+
+    if (shouldLoadTopCard) {
+      await loadLiveCard(payload.cards[0].id);
+    }
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      return;
+    }
+
+    state.searchState = {
+      query,
+      status: "error",
+      message:
+        error instanceof Error ? error.message : "The live DotGG search is unavailable right now.",
+      results: [],
+    };
+    renderSearch();
+  } finally {
+    activeSearchController = null;
+  }
+}
+
+function shouldLoadResultForQuery(query, card) {
+  const normalizedQuery = normalizeSearchValue(query);
+  if (!normalizedQuery || !card) {
+    return false;
+  }
+
+  const normalizedName = normalizeSearchValue(card.name);
+  const normalizedSlug = normalizeSearchValue(card.slug);
+
+  if (normalizedQuery === normalizedName || normalizedQuery === normalizedSlug) {
+    return true;
+  }
+
+  if (normalizedName.startsWith(normalizedQuery) || normalizedSlug.startsWith(normalizedQuery)) {
+    return true;
+  }
+
+  return false;
+}
+
+function normalizeSearchValue(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+async function handleSearchResultClick(event) {
+  const trigger = event.target.closest("[data-card-id]");
+  if (!trigger) {
+    return;
+  }
+
+  const cardId = trigger.getAttribute("data-card-id");
+  if (!cardId) {
+    return;
+  }
+
+  await loadLiveCard(cardId);
+}
+
+async function loadLiveCard(cardId) {
+  if (activeHistoryController) {
+    activeHistoryController.abort();
+  }
+
+  const matchedResult = state.searchState.results.find((card) => card.id === cardId);
+  const cardName = matchedResult?.name || cardId;
+
+  state.importState = {
+    status: "muted",
+    message: `Loading live DotGG history for ${cardName}...`,
+  };
+  renderImportStatus();
+
+  activeHistoryController = new AbortController();
+
+  try {
+    const response = await fetch(
+      `${CARD_HISTORY_PATH}/${encodeURIComponent(cardId)}/history?timepattern=6m`,
+      {
+        signal: activeHistoryController.signal,
+        cache: "no-store",
+      },
+    );
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload?.error || "Could not load live card history.");
+    }
+
+    const liveCard = normalizeStoredCard(payload.card);
+    upsertCard(liveCard);
+    state.activeCardId = liveCard.id;
     state.importState = {
       status: "success",
-      message: `Imported ${importedPrices.length} daily rows from ${file.name}. All chart metrics now use that file.`,
+      message: `Loaded ${liveCard.prices.length} live price rows for ${liveCard.name} from DotGG.`,
     };
     populateCardSelect();
     render();
   } catch (error) {
+    if (error?.name === "AbortError") {
+      return;
+    }
+
     state.importState = {
       status: "error",
-      message: error instanceof Error ? error.message : "Could not read that history file.",
+      message: error instanceof Error ? error.message : `Could not load live history for ${cardName}.`,
     };
-    historyFileInput.value = "";
     renderImportStatus();
+  } finally {
+    activeHistoryController = null;
   }
 }
 
-async function resetImportedData() {
-  historyFileInput.value = "";
-  await loadStoredHistory();
-  render();
+function upsertCard(card) {
+  const existingIndex = state.cards.findIndex((entry) => entry.id === card.id);
+  if (existingIndex >= 0) {
+    state.cards.splice(existingIndex, 1, card);
+    return;
+  }
+
+  state.cards = [card, ...state.cards];
 }
 
 function render() {
-  const card = state.cards.find((entry) => entry.id === state.activeCardId) ?? state.cards[0];
+  const card = state.cards.find((entry) => entry.id === state.activeCardId) ?? null;
   if (!card || !card.prices?.length) {
-    cardSelect.innerHTML = "";
+    cardSelect.value = "";
     cardUrl.value = "";
-    cardUrl.placeholder = "No stored data loaded";
-    feedChip.textContent = "No Data";
+    cardUrl.placeholder = "Select a card to see its source URL";
+    feedChip.textContent = state.cards.length ? "Awaiting Card" : "No Data";
     metricsGrid.innerHTML = "";
     signalCard.innerHTML = `
-      <h3>No historical data loaded</h3>
-      <p>Run the collector script or import a CSV or JSON file to calculate the chart, moving averages, and RSI.</p>
+      <h3>No card selected</h3>
+      <p>Choose a card from the list or search DotGG to load live history, price trends, and RSI.</p>
     `;
-    priceChart.innerHTML = "";
-    rsiChart.innerHTML = "";
+    selectedCardMeta.innerHTML = `
+      <div class="selected-card-meta__empty-panel">
+        <div class="selected-card-meta__empty-copy">
+          <p class="selected-card-meta__eyebrow">Selected card</p>
+          <h3 class="selected-card-meta__title">Nothing loaded yet</h3>
+          <p class="selected-card-meta__empty-text">
+            Search DotGG or pick a tracked card to populate this panel with card art and details.
+          </p>
+        </div>
+      </div>
+    `;
+    priceChart.innerHTML = buildEmptyChartState("Pick a card to load the price chart.");
+    priceSummary.innerHTML = "";
+    trendSummary.innerHTML = "";
+    rsiChart.innerHTML = buildEmptyChartState("Pick a card to calculate RSI.", true);
+    renderSearch();
     renderImportStatus();
     return;
   }
@@ -168,22 +422,70 @@ function render() {
 
   cardSelect.value = card.id;
   cardUrl.value = card.sourceUrl || "";
-  cardUrl.placeholder = card.sourceUrl ? "" : "Imported file has no source URL";
+  cardUrl.placeholder = card.sourceUrl ? "" : "This card has no source URL";
   feedChip.textContent = card.feedLabel;
+  renderSelectedCardMeta(card, latest);
   renderMetrics(latest, card);
   renderSignalCard(signal, latest, card);
   renderPriceChart(card.prices, sma20, sma50);
+  renderPriceSummary(latest);
+  renderTrendSummary(latest);
   renderRsiChart(card.prices, rsi14);
+  renderSearch();
   renderImportStatus();
+}
+
+function renderSearch() {
+  searchStatus.textContent = state.searchState.message;
+  searchStatus.className = `import-status import-status--${state.searchState.status}`;
+
+  if (!state.searchState.results.length) {
+    searchResults.innerHTML = state.searchState.query
+      ? `<p class="search-results__empty">No live DotGG cards are ready to load yet.</p>`
+      : "";
+    return;
+  }
+
+  searchResults.innerHTML = state.searchState.results
+    .map(
+      (card) => `
+        <button class="search-result" type="button" data-card-id="${escapeHtml(card.id)}">
+          <img
+            class="search-result__image"
+            src="${escapeHtml(card.imageUrl || "")}"
+            alt="${escapeHtml(card.name)}"
+            loading="lazy"
+          />
+          <span class="search-result__content">
+            <span class="search-result__title">${escapeHtml(card.name)}</span>
+            <span class="search-result__meta">${escapeHtml(buildSearchMeta(card))}</span>
+            <span class="search-result__price">${escapeHtml(buildSearchPriceLabel(card))}</span>
+          </span>
+        </button>
+      `,
+    )
+    .join("");
+}
+
+function buildSearchMeta(card) {
+  const parts = [
+    card.setName,
+    card.rarity,
+    card.type,
+    Array.isArray(card.colors) ? card.colors.join(" / ") : "",
+  ];
+  return parts.filter(Boolean).join(" · ");
+}
+
+function buildSearchPriceLabel(card) {
+  const priceLabel = card.priceField === "Normal" ? "Market" : "Foil";
+  return isFiniteNumber(card.currentPrice)
+    ? `${priceLabel}: ${formatUsd(card.currentPrice)}`
+    : `${priceLabel}: No live price`;
 }
 
 function renderMetrics(latest, card) {
   const metrics = [
-    ["Last Price", formatUsd(latest.price)],
-    ["20D SMA", formatUsd(latest.sma20)],
-    ["50D SMA", formatUsd(latest.sma50)],
-    ["RSI (14)", formatIndicatorNumber(latest.rsi)],
-    ["Vs 20D", formatPercent(latest.vsSma20)],
     ["Source", card.sourceName || card.feedLabel],
   ];
 
@@ -199,18 +501,98 @@ function renderMetrics(latest, card) {
     .join("");
 }
 
-function renderSignal(signal, latest, card) {
-  signalCard.innerHTML = `
-    <h3>${signal.title}</h3>
-    <p>${signal.description(latest, card)}</p>
-    <span class="signal-score">${signal.label} · Score ${signal.score}/100</span>
-  `;
+function renderSelectedCardMeta(card, latest) {
+  const metadata = [
+    ["Set", buildSetLabel(card)],
+    ["Card ID", buildCardCode(card) || "N/A"],
+    ["Rarity", card.rarity || "N/A"],
+    ["Type", buildTypeLabel(card)],
+    ["Color", buildColorLabel(card.colors)],
+    ["Feed", card.feedLabel || "N/A"],
+  ];
 
-  signalCard.style.borderColor = signal.border;
-  signalCard.style.background = `
-    linear-gradient(180deg, ${signal.glowTop}, ${signal.glowBottom}),
-    rgba(255, 255, 255, 0.04)
+  selectedCardMeta.innerHTML = `
+    <div class="selected-card-meta__media">
+      ${
+        card.imageUrl
+          ? `<img class="selected-card-meta__image" src="${escapeHtml(card.imageUrl)}" alt="${escapeHtml(card.name)}" loading="lazy" />`
+          : `<div class="selected-card-meta__image selected-card-meta__image--empty">No card art</div>`
+      }
+    </div>
+    <div class="selected-card-meta__content">
+      <div class="selected-card-meta__header">
+        <div>
+          <p class="selected-card-meta__eyebrow">Selected card</p>
+          <h3 class="selected-card-meta__title">${escapeHtml(buildMetaTitle(card))}</h3>
+          <p class="selected-card-meta__subtitle">${escapeHtml(buildMetaSubtitle(card, latest))}</p>
+        </div>
+        <a
+          class="selected-card-meta__link"
+          href="${escapeHtml(card.sourceUrl || "#")}"
+          target="_blank"
+          rel="noreferrer"
+          ${card.sourceUrl ? "" : 'aria-disabled="true" tabindex="-1"'}
+        >
+          Open on Riftbound.gg
+        </a>
+      </div>
+      <div class="selected-card-meta__grid">
+        ${metadata
+          .map(
+            ([label, value]) => `
+              <article class="selected-card-meta__item">
+                <div class="selected-card-meta__label">${escapeHtml(label)}</div>
+                <div class="selected-card-meta__value">${escapeHtml(value)}</div>
+              </article>
+            `,
+          )
+          .join("")}
+      </div>
+    </div>
   `;
+}
+
+function buildMetaTitle(card) {
+  const code = buildCardCode(card);
+  if (!code) {
+    return card.name || "Selected card";
+  }
+
+  return `${code} ${card.name}`.trim();
+}
+
+function buildCardCode(card) {
+  return String(card.dotggCardId || card.id || "").trim();
+}
+
+function buildSetLabel(card) {
+  const code = buildCardCode(card);
+  const setCode = code.split("-")[0] || "";
+  return [setCode, card.setName].filter(Boolean).join(" - ") || "N/A";
+}
+
+function buildColorLabel(colors) {
+  return Array.isArray(colors) && colors.length ? colors.join(" / ") : "N/A";
+}
+
+function buildTypeLabel(card) {
+  return [card.supertype, card.type].filter(Boolean).join(" / ") || card.type || "N/A";
+}
+
+function buildMetaSubtitle(card, latest) {
+  const parts = [
+    card.rarity,
+    buildColorLabel(card.colors),
+    isFiniteNumber(latest.price) ? `Live ${formatUsd(latest.price)}` : "",
+  ];
+  return parts.filter(Boolean).join(" · ");
+}
+
+function buildEmptyChartState(message, compact = false) {
+  const className = compact
+    ? "empty-chart-state empty-chart-state--compact"
+    : "empty-chart-state";
+  return `<div class="${className}">${escapeHtml(message)}</div>`;
 }
 
 function renderImportStatus() {
@@ -273,6 +655,8 @@ function renderPriceChart(prices, sma20, sma50) {
         color: entry.color,
         formatter: formatUsd,
         seriesIndex,
+        includeLast: false,
+        extremaCount: 1,
       }),
     ),
     yDomain: paddedExtent(values, 0.08),
@@ -284,6 +668,44 @@ function renderPriceChart(prices, sma20, sma50) {
     ["20-day SMA", "var(--sma20)"],
     ["50-day SMA", "var(--sma50)"],
   ]);
+}
+
+function renderPriceSummary(latest) {
+  const cards = [
+    ["Latest Price", formatUsd(latest.price), "price"],
+    ["Latest 20D SMA", formatUsd(latest.sma20), "sma20"],
+    ["Latest 50D SMA", formatUsd(latest.sma50), "sma50"],
+  ];
+
+  priceSummary.innerHTML = cards
+    .map(
+      ([label, value, tone]) => `
+        <article class="price-summary__card price-summary__card--${tone}">
+          <div class="price-summary__label">${label}</div>
+          <div class="price-summary__value">${value}</div>
+        </article>
+      `,
+    )
+    .join("");
+}
+
+function renderTrendSummary(latest) {
+  const cards = [
+    ["RSI (14)", formatIndicatorNumber(latest.rsi)],
+    ["Vs 20D", formatPercent(latest.vsSma20)],
+    ["Vs 50D", formatPercent(latest.vsSma50)],
+  ];
+
+  trendSummary.innerHTML = cards
+    .map(
+      ([label, value]) => `
+        <article class="trend-summary__card">
+          <div class="trend-summary__label">${label}</div>
+          <div class="trend-summary__value">${value}</div>
+        </article>
+      `,
+    )
+    .join("");
 }
 
 function renderRsiChart(prices, rsi) {
@@ -351,9 +773,11 @@ function buildLineChartSvg({
     (index) => index >= 0,
   );
   const xTicks = tickIndexes
-    .map((index) => `
+    .map(
+      (index) => `
       <text x="${xAt(index)}" y="${height - 10}" text-anchor="middle" class="axis-text">${labels[index]}</text>
-    `)
+    `,
+    )
     .join("");
 
   const guides = horizontalGuides
@@ -417,7 +841,10 @@ function buildLineChartSvg({
   };
 }
 
-function buildSeriesPointAnnotations(values, { color, formatter, seriesIndex }) {
+function buildSeriesPointAnnotations(
+  values,
+  { color, formatter, seriesIndex, includeLast = true, extremaCount = 2 },
+) {
   const finitePoints = values
     .map((value, index) => ({ value, index }))
     .filter(({ value }) => isFiniteNumber(value));
@@ -429,10 +856,10 @@ function buildSeriesPointAnnotations(values, { color, formatter, seriesIndex }) 
   const annotationKindsByIndex = new Map();
   const highest = [...finitePoints]
     .sort((left, right) => right.value - left.value || left.index - right.index)
-    .slice(0, 2);
+    .slice(0, extremaCount);
   const lowest = [...finitePoints]
     .sort((left, right) => left.value - right.value || left.index - right.index)
-    .slice(0, 2);
+    .slice(0, extremaCount);
   const lastPoint = finitePoints[finitePoints.length - 1];
 
   for (const point of highest) {
@@ -443,7 +870,9 @@ function buildSeriesPointAnnotations(values, { color, formatter, seriesIndex }) 
     addAnnotationKind(annotationKindsByIndex, point.index, "low");
   }
 
-  addAnnotationKind(annotationKindsByIndex, lastPoint.index, "last");
+  if (includeLast) {
+    addAnnotationKind(annotationKindsByIndex, lastPoint.index, "last");
+  }
 
   return [...annotationKindsByIndex.entries()].map(([index, kinds]) => ({
     index,
@@ -780,114 +1209,6 @@ function describeRsiPoints(points, rsi) {
   return `0 at RSI ${formatIndicatorNumber(rsi)}`;
 }
 
-function parseImportedHistory(text, fileName) {
-  const extension = fileName.split(".").pop()?.toLowerCase();
-  const rawRows =
-    extension === "json" ? parseJsonHistory(text) : extension === "csv" ? parseCsvHistory(text) : parseUnknownHistory(text);
-
-  if (rawRows.length < 15) {
-    throw new Error("Imported history needs at least 15 rows to calculate RSI(14).");
-  }
-
-  const normalizedRows = rawRows
-    .map(normalizeHistoryRow)
-    .sort((left, right) => left.date.localeCompare(right.date));
-
-  ensureUniqueDates(normalizedRows);
-  return normalizedRows;
-}
-
-function parseUnknownHistory(text) {
-  const trimmed = text.trim();
-  if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
-    return parseJsonHistory(text);
-  }
-
-  return parseCsvHistory(text);
-}
-
-function parseJsonHistory(text) {
-  const parsed = JSON.parse(text);
-  if (Array.isArray(parsed)) {
-    return parsed;
-  }
-
-  if (Array.isArray(parsed?.prices)) {
-    return parsed.prices;
-  }
-
-  if (Array.isArray(parsed?.data)) {
-    return parsed.data;
-  }
-
-  throw new Error("JSON must be an array of rows or contain a prices/data array.");
-}
-
-function parseCsvHistory(text) {
-  const lines = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  if (lines.length < 2) {
-    throw new Error("CSV must include a header row and at least one data row.");
-  }
-
-  const headers = splitCsvLine(lines[0]).map((value) => value.trim().toLowerCase());
-  const dateIndex = headers.findIndex((header) => ["date", "day", "timestamp"].includes(header));
-  const priceIndex = headers.findIndex((header) =>
-    ["price", "close", "marketprice", "market_price", "last_price", "lastprice"].includes(header),
-  );
-
-  if (dateIndex === -1 || priceIndex === -1) {
-    throw new Error("CSV must contain date and price columns.");
-  }
-
-  return lines.slice(1).map((line, index) => {
-    const values = splitCsvLine(line);
-    if (values.length <= Math.max(dateIndex, priceIndex)) {
-      throw new Error(`CSV row ${index + 2} is missing a required value.`);
-    }
-
-    return {
-      date: values[dateIndex],
-      price: values[priceIndex],
-    };
-  });
-}
-
-function splitCsvLine(line) {
-  const values = [];
-  let current = "";
-  let inQuotes = false;
-
-  for (let index = 0; index < line.length; index += 1) {
-    const character = line[index];
-
-    if (character === '"') {
-      const nextCharacter = line[index + 1];
-      if (inQuotes && nextCharacter === '"') {
-        current += '"';
-        index += 1;
-      } else {
-        inQuotes = !inQuotes;
-      }
-      continue;
-    }
-
-    if (character === "," && !inQuotes) {
-      values.push(current);
-      current = "";
-      continue;
-    }
-
-    current += character;
-  }
-
-  values.push(current);
-  return values;
-}
-
 function normalizeHistoryRow(row, index) {
   const sourceDate = row?.date ?? row?.day ?? row?.timestamp;
   const sourcePrice =
@@ -936,16 +1257,6 @@ function normalizePrice(value) {
   const cleaned = value.replace(/[$,\s]/g, "");
   const parsed = Number(cleaned);
   return Number.isFinite(parsed) ? parsed : null;
-}
-
-function ensureUniqueDates(rows) {
-  const seen = new Set();
-  for (const row of rows) {
-    if (seen.has(row.date)) {
-      throw new Error(`Duplicate date found in import: ${row.date}`);
-    }
-    seen.add(row.date);
-  }
 }
 
 function calculateSma(values, period) {
@@ -1002,8 +1313,7 @@ function paddedExtent(values, paddingRatio) {
 }
 
 function formatLabelFromDate(dateString) {
-  const [year, month, day] = dateString.split("-");
-  void year;
+  const [, month, day] = dateString.split("-");
   return `${month}/${day}`;
 }
 
@@ -1059,4 +1369,13 @@ function findLastFiniteIndex(values) {
   }
 
   return -1;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
